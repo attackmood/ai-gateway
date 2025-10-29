@@ -26,12 +26,36 @@ repositories {
 }
 
 dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+
+    // === Spring WebFlux (Reactive Web) ===
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
+    // === Spring Data MongoDB Reactive ===
+    implementation 'org.springframework.boot:spring-boot-starter-data-mongodb-reactive'
+    // === Spring Data Redis Reactive ===
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
+    implementation 'io.lettuce:lettuce-core'  // Redis Reactive Client
+    // === Spring Security Reactive (JWT 인증용) ===
+//    implementation 'org.springframework.boot:spring-boot-starter-security'
+//    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+//    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+//    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+    // === Monitoring & Metrics ===
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    // === Lombok ===
     compileOnly 'org.projectlombok:lombok'
-    developmentOnly 'org.springframework.boot:spring-boot-devtools'
-    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
     annotationProcessor 'org.projectlombok:lombok'
+
+    // === thymeleaf ===
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+
+
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    // === Configuration Processor ===
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+
+    // === Test ===
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'io.projectreactor:reactor-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -39,4 +63,25 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+
+// DevTools 자동 리로드 설정
+bootRun {
+	// 클래스패스 변경 감지
+	classpath = sourceSets.main.runtimeClasspath
+}
+
+// 파일 변경 감지
+tasks.register('devtools') {
+	dependsOn 'bootRun'
+	doLast {
+		println "DevTools 자동 리로드 활성화됨"
+	}
+}
+
+dependencyManagement {
+	imports {
+		mavenBom "org.springframework.cloud:spring-cloud-dependencies:2025.0.0"
+	}
 }

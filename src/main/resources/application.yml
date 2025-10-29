@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: ai-gateway
+  main:
+    web-application-type: reactive
+  devtools:
+    restart:
+      enabled: true
+      additional-paths: src/main/java
+      exclude: static/**,public/**,templates/**
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/ai-gateway
+      auto-index-creation: true
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 3000ms
+
+# 서버 설정
+server:
+  port: 8080
+
+
+
+# Python AI Engine 설정
+ai-engine:
+  base-url: http://localhost:11650
+  timeout: 30s
+  retry:
+    max-attempts: 3
+    backoff: 1s
+
+
+
+# 캐시 설정
+cache:
+  ttl: 5m  # 5분
+  max-size: 1000
+
+# 세션 설정
+session:
+  cache-ttl: 10m
+  context-window: 10  # 최근 10개 메시지만 유지
+  max-age: 24h        # 24시간 후 자동 만료
+
+# Actuator 설정
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+# 로깅 설정
+logging:
+  level:
+    root: INFO
+    com.labg.aigateway: DEBUG
+    org.springframework.data.mongodb: DEBUG
