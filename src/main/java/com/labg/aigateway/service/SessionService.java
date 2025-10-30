@@ -16,14 +16,8 @@ import reactor.core.publisher.Mono;
  * 2025-10-29          이가은             최초 생성
  */
 public interface SessionService {
-    Mono<ChatSession> createSession(String userId);
     Mono<ChatSession> getOrCreateSession(String sessionId, String userId);
     Mono<ChatSession> addMessage(String sessionId, Message message);
+    Mono<ChatSession> addMessagePair(String sessionId, Message userMessage, Message assistantMessage);
 
-    Mono<ChatSession> addMessagePair(
-            String sessionId,
-            Message userMessage,
-            Message assistantMessage);
-
-    Mono<Boolean> sessionExists(String sessionId);
 }

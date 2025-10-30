@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.index.Indexed;
@@ -11,6 +12,7 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * packageName    : com.labg.aigateway.domain
@@ -52,6 +54,25 @@ public class ChatSession {
 
     // === 비즈니스 로직 ===
 
+
+
+    /**
+     * 새 세션 추가
+     * @param userId
+     */
+    public static ChatSession newSession(String userId) {
+        String sessionId = "session_" + UUID.randomUUID().toString().replace("-", "");
+        LocalDateTime now = LocalDateTime.now();
+
+        return ChatSession.builder()
+                .sessionId(sessionId)
+                .userId(userId)
+                .createdAt(now)
+                .lastAccessedAt(now)
+                .maxContextWindow(10) // 기본값 설정
+                .build();
+    }
+
     /**
      * 새 메시지 추가
      */
@@ -60,10 +81,12 @@ public class ChatSession {
         this.lastAccessedAt = LocalDateTime.now();
 
         // 컨텍스트 윈도우 초과 시 오래된 메시지 제거
-        if (messages.size() > maxContextWindow * 2) {  // user + assistant = 2개
-            messages = messages.subList(
-                messages.size() - (maxContextWindow * 2),
-                messages.size()
+        if (messages.size() > maxContextWindow * 2) {
+            this.messages = new ArrayList<>(
+                messages.subList(
+                    messages.size() - (maxContextWindow * 2),
+                    messages.size()
+                )
             );
         }
     }
@@ -80,6 +103,7 @@ public class ChatSession {
     /**
      * 세션이 만료되었는지 확인 (24시간)
      */
+    @JsonIgnore
     public boolean isExpired() {
         return lastAccessedAt.isBefore(LocalDateTime.now().minusHours(24));
     }

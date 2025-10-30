@@ -2,15 +2,13 @@ package com.labg.aigateway.service.impl;
 
 import com.labg.aigateway.domain.ChatSession;
 import com.labg.aigateway.domain.Message;
-import com.labg.aigateway.dto.request.AiEngineRequest;
-import com.labg.aigateway.service.AiEngineClient;
 import com.labg.aigateway.service.ContextManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
 import java.time.ZoneId;
+import java.util.*;
 
 /**
  * packageName    : com.labg.aigateway.service
@@ -27,9 +25,6 @@ import java.time.ZoneId;
 @RequiredArgsConstructor
 @Slf4j
 public class ContextManagerImpl implements ContextManager {
-
-    private final AiEngineClient aiEngineClient; // 미래 확장(요약/리랭킹 등) 용도로 주입만 유지
-
 
     /**
      * 최근 N개 메시지 추출 (기본 10개)
@@ -85,23 +80,6 @@ public class ContextManagerImpl implements ContextManager {
         return context;
     }
 
-    /**
-     * 토큰 수 추정 (대략적, 한글 1글자 -> 2토큰)
-     * @param messages
-     * @return
-     */
-    @Override
-    public int estimateTokenCount(List<Message> messages) {
-        if (messages == null || messages.isEmpty()) return 0;
-        long total = 0;
-        for (Message m : messages) {
-            if (m == null) continue;
-            String text = m.getContent();
-            if (text == null || text.isEmpty()) continue;
-            total += estimateTokensForText(text);
-        }
-        return (int) Math.min(Integer.MAX_VALUE, total);
-    }
 
     /**
      * 토큰 제한에 맞게 메시지 자르기
@@ -144,11 +122,28 @@ public class ContextManagerImpl implements ContextManager {
         if (estimateTokenCount(all) > 4000) return true;
         // 정책 2: 최대 컨텍스트 윈도우 초과 시 정리 (user/assistant 쌍 고려해 2배까지 허용)
         Integer window = session.getMaxContextWindow();
-        if (window != null && all.size() > window * 2) return true;
-        return false;
+        return window != null && all.size() > window * 2;
     }
 
+
     // ===== 내부 유틸 =====
+
+    /**
+     * 토큰 수 추정 (대략적, 한글 1글자 -> 2토큰)
+     * @param messages
+     * @return
+     */
+    private int estimateTokenCount(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) return 0;
+        long total = 0;
+        for (Message m : messages) {
+            if (m == null) continue;
+            String text = m.getContent();
+            if (text == null || text.isEmpty()) continue;
+            total += estimateTokensForText(text);
+        }
+        return (int) Math.min(Integer.MAX_VALUE, total);
+    }
 
     private int estimateTokensForText(String text) {
         if (text == null || text.isEmpty()) return 0;

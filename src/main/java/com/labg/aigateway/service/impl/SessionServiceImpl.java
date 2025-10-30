@@ -3,8 +3,6 @@ package com.labg.aigateway.service.impl;
 import com.labg.aigateway.domain.ChatSession;
 import com.labg.aigateway.domain.Message;
 import com.labg.aigateway.repository.ChatSessionRepository;
-import com.labg.aigateway.repository.QueryHistoryRepository;
-import com.labg.aigateway.service.AiEngineClient;
 import com.labg.aigateway.service.CacheService;
 import com.labg.aigateway.service.ContextManager;
 import com.labg.aigateway.service.SessionService;
@@ -15,7 +13,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
  * packageName    : com.labg.aigateway.service
@@ -33,44 +30,14 @@ import java.util.UUID;
 @Slf4j
 public class SessionServiceImpl implements SessionService {
 
-    private final AiEngineClient aiEngineClient;
     private final ChatSessionRepository sessionRepository;
-    private final QueryHistoryRepository historyRepository;
     private final CacheService cacheService;
     private final ContextManager contextManager;
 
 
     /**
-     * 새로운 세션 생성
-     *
-     * @param userId 사용자 ID
-     * @return 생성된 세션
-     */
-    @Override
-    public Mono<ChatSession> createSession(String userId) {
-        String sessionId = generateSessionId();
-
-        ChatSession session = ChatSession.builder()
-                .sessionId(sessionId)
-                .userId(userId)
-                .createdAt(LocalDateTime.now())
-                .lastAccessedAt(LocalDateTime.now())
-                .maxContextWindow(10)
-                .build();
-
-        log.info("새 세션 생성 - sessionId: {}, userId: {}", sessionId, userId);
-
-        return sessionRepository.save(session)
-                .doOnSuccess(saved -> cacheService.cacheSession(saved).subscribe())
-                .doOnError(error -> log.error("세션 생성 실패 - sessionId: {}", sessionId, error));
-    }
-
-
-    /**
      * 세션 조회 또는 생성
-     * 1. 캐시 확인
-     * 2. DB 조회
-     * 3. 없으면 새로 생성
+     * 캐시 확인 -> 캐시 미스 시 DB 조회 -> 없으면 새로 생성
      *
      * @param sessionId 세션 ID (null 가능)
      * @param userId    사용자 ID
@@ -92,7 +59,6 @@ public class SessionServiceImpl implements SessionService {
                         sessionRepository.findBySessionId(sessionId)
                                 .doOnNext(session -> {
                                     log.debug("DB에서 세션 조회 성공 - sessionId: {}", sessionId);
-                                    // 캐시에 저장
                                     cacheService.cacheSession(session).subscribe();
                                 })
                                 // 3. DB에도 없으면 새로 생성
@@ -108,6 +74,23 @@ public class SessionServiceImpl implements SessionService {
     }
 
     /**
+     * 새로운 세션 생성
+     *
+     * @param userId 사용자 ID
+     * @return 생성된 세션
+     */
+    private Mono<ChatSession> createSession(String userId) {
+        ChatSession session = ChatSession.newSession(userId);
+        String sessionId = session.getSessionId();
+
+        log.info("새 세션 생성 - sessionId: {}, userId: {}", sessionId, userId);
+
+        return sessionRepository.save(session) // 세션 저장
+                .doOnSuccess(saved -> cacheService.cacheSession(saved).subscribe()) //레디스에 저장
+                .doOnError(error -> log.error("세션 생성 실패 - sessionId: {}", sessionId, error));
+    }
+
+    /**
      * @param sessionId
      * @param message
      * @return
@@ -115,38 +98,37 @@ public class SessionServiceImpl implements SessionService {
     @Override
     public Mono<ChatSession> addMessage(String sessionId, Message message) {
         return sessionRepository.findBySessionId(sessionId)
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException("세션을 찾을 수 없습니다: " + sessionId)
-                ))
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("세션을 찾을 수 없습니다: " + sessionId)))
                 .flatMap(session -> {
                     // 메시지 추가 (Domain의 비즈니스 로직 실행)
                     session.addMessage(message);
 
-                    // 컨텍스트 정리 필요 여부 확인
+                    // 컨텍스트 정리 필요 시 실제 절단 적용
                     if (contextManager.shouldTruncateContext(session)) {
                         log.debug("컨텍스트 윈도우 초과 - 정리 실행. sessionId: {}", sessionId);
+                        var truncated = contextManager.truncateByTokenLimit(session.getMessages(), 4000);
+                        session.setMessages(truncated);
                     }
 
                     log.debug("메시지 추가 - sessionId: {}, role: {}, content length: {}",
-                            sessionId, message.getRole(), message.getContent().length());
+                            sessionId, message.getRole(), message.getContent() == null ? 0 : message.getContent().length());
 
-                    // MongoDB 저장
-                    return sessionRepository.save(session);
+                    // MongoDB 저장 후 캐시 업데이트 및 쿼리 캐시 무효화 체인
+                    return sessionRepository.save(session)
+                            .flatMap(saved -> cacheService.cacheSession(saved)
+                                    .onErrorReturn(false)
+                                    .then(cacheService.invalidateQueryCache(sessionId).onErrorReturn(false))
+                                    .thenReturn(saved)
+                            );
                 })
-                .doOnSuccess(session -> {
-                    // 캐시 업데이트
-                    cacheService.cacheSession(session).subscribe();
-                    // 쿼리 캐시 무효화 (새 메시지가 추가되었으므로)
-//                    cacheService.invalidateQueryCache(sessionId).subscribe();
-                })
-                .doOnError(error ->
-                        log.error("메시지 추가 실패 - sessionId: {}", sessionId, error)
-                );
+                .doOnError(error -> log.error("메시지 추가 실패 - sessionId: {}", sessionId, error));
     }
+
 
 
     /**
      * 사용자 메시지와 AI 응답을 한 번에 추가
+     * 
      * @param sessionId
      * @param userMessage
      * @param assistantMessage
@@ -154,32 +136,40 @@ public class SessionServiceImpl implements SessionService {
      */
     @Override
     public Mono<ChatSession> addMessagePair(String sessionId, Message userMessage, Message assistantMessage) {
+        // 세션 조회
+        return sessionRepository.findBySessionId(sessionId)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("세션을 찾을 수 없습니다: " + sessionId)))
+                .flatMap(session -> {
+                    // 메시지 추가
+                    session.addMessage(userMessage);
+                    session.addMessage(assistantMessage);
 
-        return addMessage(sessionId, userMessage)
-                .flatMap(session -> addMessage(sessionId, assistantMessage));
-    }
+                    // 컨텍스트 정리 필요 시 실제 절단 적용
+                    if (contextManager.shouldTruncateContext(session)) {
+                        log.debug("컨텍스트 윈도우 초과 - 정리 실행(페어). sessionId: {}", sessionId);
+                        var truncated = contextManager.truncateByTokenLimit(session.getMessages(), 4000);
+                        session.setMessages(truncated);
+                    }
 
-    /**
-     * 세션 조회 (캐시 우선)
-     *
-     * @param sessionId 세션 ID
-     * @return 세션 (없으면 empty)
-     */
-    public Mono<ChatSession> getSession(String sessionId) {
-        return cacheService.getCachedSession(sessionId)
-                .switchIfEmpty(
-                        sessionRepository.findBySessionId(sessionId)
-                                .doOnNext(session -> cacheService.cacheSession(session).subscribe())
-                );
+                    // MongoDB 저장 후 캐시 업데이트 및 쿼리 캐시 무효화 체인
+                    return sessionRepository.save(session)
+                            .flatMap(saved -> cacheService.cacheSession(saved)
+                                    .onErrorReturn(false)
+//                                    .then(cacheService.invalidateQueryCache(sessionId).onErrorReturn(false))
+                                    .thenReturn(saved)
+                            );
+                })
+                .doOnError(error -> log.error("메시지 페어 추가 실패 - sessionId: {}", sessionId, error));
     }
 
 
     /**
      * 만료된 세션 삭제 (24시간 이상 미사용)
+     *
      * @return
      */
     @Scheduled(cron = "${session.cleanup-cron:0 0 3 * * ?}")
-    public void cleanExpiredSessions() {
+    private void cleanExpiredSessions() {
         log.info("만료된 세션 정리 시작");
 
         LocalDateTime expiryTime = LocalDateTime.now().minusHours(24);
@@ -187,7 +177,7 @@ public class SessionServiceImpl implements SessionService {
         sessionRepository.findByLastAccessedAtBefore(expiryTime)
                 .flatMap(session -> {
                     log.debug("만료된 세션 삭제 - sessionId: {}, lastAccessed: {}",
-                              session.getSessionId(), session.getLastAccessedAt());
+                            session.getSessionId(), session.getLastAccessedAt());
                     return sessionRepository.delete(session)
                             .thenReturn(session.getSessionId());
                 })
@@ -196,21 +186,11 @@ public class SessionServiceImpl implements SessionService {
                     log.info("만료된 세션 정리 완료 - 삭제된 세션 수: {}", deletedIds.size());
                     // 캐시에서도 제거
                     deletedIds.forEach(sessionId ->
-                        cacheService.invalidateCache(sessionId).subscribe()
+                            cacheService.invalidateCache(sessionId).subscribe()
                     );
                 })
                 .doOnError(error -> log.error("만료된 세션 정리 실패", error))
                 .subscribe();
-    }
-
-    /**
-     * 세션 존재 여부 확인
-     * @param sessionId
-     * @return
-     */
-    @Override
-    public Mono<Boolean> sessionExists(String sessionId) {
-        return null;
     }
 
 
@@ -226,12 +206,4 @@ public class SessionServiceImpl implements SessionService {
                 .doOnSuccess(updated -> cacheService.cacheSession(updated).subscribe());
     }
 
-    /**
-     * 세션 ID 생성
-     *
-     * @return UUID 기반 세션 ID
-     */
-    private String generateSessionId() {
-        return "session_" + UUID.randomUUID().toString().replace("-", "");
-    }
 }

@@ -14,6 +14,9 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+
+
 import java.time.Duration;
 import java.util.Map;
 
@@ -35,7 +38,6 @@ import java.util.Map;
 public class AiEngineClient {
 
     private final WebClient webClient;
-//    private final RedisTemplate<String, Object> redisTemplate;
     @Value("${ai-engine.timeout}")
     Duration timeout;
     @Value("${ai-engine.retry.max-attempts:3}")
@@ -67,10 +69,7 @@ public class AiEngineClient {
                 .onErrorResume(this::handleError);
     }
 
-    /**
-     * AI Engine 헬스체크
-     * @return
-     */
+
     private Mono<AiResponse> queryFallback(AiEngineRequest request, Exception exception) {
         log.warn("Circuit Breaker Fallback 실행 - sessionId: {}, error: {}",
                 request.getSessionId(), exception.getMessage());

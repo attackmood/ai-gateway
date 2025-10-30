@@ -21,5 +21,5 @@ public interface CacheService {
     Mono<ChatSession> getCachedSession(String sessionId);
     Mono<Boolean> cacheSession(ChatSession session);
     Mono<Boolean> invalidateCache(String sessionId);
-    String generateCacheKey(String sessionId, String message);
+    Mono<Boolean> invalidateQueryCache(String sessionId);
 }

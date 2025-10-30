@@ -21,7 +21,6 @@ import java.util.Map;
 public interface ContextManager {
     List<Message> getRecentContext(ChatSession session, int maxMessages);
     Map<String, Object> formatContextForAi(List<Message> messages);
-    int estimateTokenCount(List<Message> messages);
     List<Message> truncateByTokenLimit(List<Message> messages, int maxTokens);
     boolean shouldTruncateContext(ChatSession session);
 

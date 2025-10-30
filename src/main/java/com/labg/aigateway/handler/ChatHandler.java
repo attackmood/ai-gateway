@@ -5,19 +5,20 @@ import com.labg.aigateway.dto.request.AiEngineRequest;
 import com.labg.aigateway.dto.request.ChatRequest;
 import com.labg.aigateway.dto.response.ChatResponse;
 import com.labg.aigateway.service.AiEngineClient;
-
-import java.util.List;
-import java.util.Map;
-
+import com.labg.aigateway.service.CacheService;
 import com.labg.aigateway.service.ContextManager;
 import com.labg.aigateway.service.SessionService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Mono;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * packageName    : com.labg.aigateway.handler
@@ -32,11 +33,13 @@ import reactor.core.publisher.Mono;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class ChatHandler {
 
     private final AiEngineClient aiEngineClient;
     private final SessionService sessionService;
     private final ContextManager contextManager;
+    private final CacheService cacheService;
 
 
     public Mono<ServerResponse> handleChat(ServerRequest request) {
@@ -63,16 +66,26 @@ public class ChatHandler {
                                 // 3-1. 토큰 제한 적용(최대 4000 토큰)
                                 List<Message> limited = contextManager.truncateByTokenLimit(context, 4000);
 
-                                // 4. AI Engine 호출
+
                                 AiEngineRequest aiRequest = AiEngineRequest.builder()
                                         .message(chatRequest.getMessage())
                                         .sessionId(session.getSessionId())
                                         .context(contextManager.formatContextForAi(limited))
                                         .build();
-
-                                return aiEngineClient.query(aiRequest)
+                                // 4. 캐시 조회 후 비어있으면 AI Engine 호출
+                                return cacheService.getCachedResponse(session.getSessionId(), chatRequest.getMessage())
+                                        .switchIfEmpty(
+                                                cacheService.invalidateQueryCache(session.getSessionId())      // 1) 호출 전 무효화
+                                                        .onErrorReturn(false)
+                                                        .then(aiEngineClient.query(aiRequest))                     // 2) AI 호출
+                                                        .flatMap(aiResponse ->
+                                                                cacheService.cacheResponse(session.getSessionId(), chatRequest.getMessage(), aiResponse)
+                                                                        .onErrorReturn(false)
+                                                                        .thenReturn(aiResponse)                            // 3) 응답 캐시 저장
+                                                        )
+                                        )
                                         .flatMap(aiResponse -> {
-                                            // 5. AI 응답을 메시지로 변환
+                                            // 6. AI 응답을 메시지로 변환
                                             Message assistantMessage = Message.assistantMessage(
                                                     aiResponse.getMessage(),
                                                     Message.MessageMetadata.builder()
@@ -81,7 +94,7 @@ public class ChatHandler {
                                                             .build()
                                             );
 
-                                            // 6. 메시지 쌍 저장
+                                            // 7. 메시지 쌍 저장
                                             return sessionService.addMessagePair(
                                                     session.getSessionId(),
                                                     userMessage,
@@ -90,7 +103,7 @@ public class ChatHandler {
                                         });
                             })
                             .flatMap(aiResponse -> {
-                                // 7. 최종 응답 생성
+                                // 8. 최종 응답 생성
                                 ChatResponse response = ChatResponse.success(
                                         aiResponse.getMessage(),
                                         aiResponse.getSessionId(),
