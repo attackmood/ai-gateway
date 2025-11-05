@@ -2,6 +2,7 @@ package com.labg.aigateway.service;
 
 import com.labg.aigateway.dto.request.AiEngineRequest;
 import com.labg.aigateway.dto.response.AiResponse;
+import com.labg.aigateway.dto.response.HealthResponse;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
@@ -80,23 +81,35 @@ public class AiEngineClient {
 
     /**
      * AI Engine 헬스체크
+     * Python API의 구조화된 헬스체크 응답을 받아서 반환
      *
-     * @return 정상 여부
+     * @return HealthResponse (상태, 서비스 정보 등 포함)
      */
-    public Mono<Boolean> healthCheck() {
+    public Mono<HealthResponse> healthCheck() {
         log.debug("AI Engine 헬스체크 시작");
 
         return webClient.get()
-                .uri("/api/health")
+                .uri("/api/health/")  // trailing slash 포함 (리다이렉트 방지)
                 .retrieve()
-                .bodyToMono(String.class)
-                .map(response -> {
-                    log.debug("AI Engine 헬스체크 성공 - response: {}", response);
-                    return true;
-                })
+                .bodyToMono(HealthResponse.class)
+                .doOnSuccess(response -> 
+                    log.debug("AI Engine 헬스체크 성공 - status: {}, routerAvailable: {}, uptime: {}", 
+                            response.getStatus(), response.getRouterAvailable(), response.getUptime())
+                )
                 .timeout(Duration.ofSeconds(5))
-                .doOnError(error ->log.error("AI Engine 헬스체크 실패 - error: {}", error.getMessage()))
-                .onErrorReturn(false);
+                .doOnError(error -> 
+                    log.error("AI Engine 헬스체크 실패 - error: {}", error.getMessage())
+                )
+                .onErrorResume(error -> {
+                    // 에러 발생 시 unhealthy 상태로 반환
+                    return Mono.just(HealthResponse.builder()
+                            .status("unhealthy")
+                            .service("Smart-RAG Chat")
+                            .version("unknown")
+                            .routerAvailable(false)
+                            .uptime("0")
+                            .build());
+                });
     }
 
     /**

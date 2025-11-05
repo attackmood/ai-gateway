@@ -55,55 +55,63 @@ public class ChatHandler {
                                 ));
                     }
                     // 1. 세션 조회/생성
-                    return sessionService.getOrCreateSession(chatRequest.getSessionId(),chatRequest.getUserId())
+                    return sessionService.getOrCreateSession(chatRequest.getSessionId(), chatRequest.getUserId())
                             .flatMap(session -> {
                                 // 2. 사용자 메시지 생성
                                 Message userMessage = Message.userMessage(chatRequest.getMessage());
 
-                                // 3. 컨텍스트 추출
-                                int window = session.getMaxContextWindow() == null ? 10 : session.getMaxContextWindow();
-                                List<Message> context = contextManager.getRecentContext(session, window);
-                                // 3-1. 토큰 제한 적용(최대 4000 토큰)
-                                List<Message> limited = contextManager.truncateByTokenLimit(context, 4000);
-
-
-                                AiEngineRequest aiRequest = AiEngineRequest.builder()
-                                        .message(chatRequest.getMessage())
-                                        .sessionId(session.getSessionId())
-                                        .context(contextManager.formatContextForAi(limited))
-                                        .build();
-                                // 4. 캐시 조회 후 비어있으면 AI Engine 호출
+                                // 3. 캐시 조회
                                 return cacheService.getCachedResponse(session.getSessionId(), chatRequest.getMessage())
+                                        .flatMap(cachedResponse -> {
+                                            // 캐시 HIT: 메시지 저장 없이 바로 응답 반환
+                                            log.debug("캐시 HIT - 메시지 저장 생략, 즉시 응답 반환");
+                                            return Mono.just(cachedResponse);
+                                        })
                                         .switchIfEmpty(
-                                                cacheService.invalidateQueryCache(session.getSessionId())      // 1) 호출 전 무효화
-                                                        .onErrorReturn(false)
-                                                        .then(aiEngineClient.query(aiRequest))                     // 2) AI 호출
-                                                        .flatMap(aiResponse ->
-                                                                cacheService.cacheResponse(session.getSessionId(), chatRequest.getMessage(), aiResponse)
-                                                                        .onErrorReturn(false)
-                                                                        .thenReturn(aiResponse)                            // 3) 응답 캐시 저장
-                                                        )
-                                        )
-                                        .flatMap(aiResponse -> {
-                                            // 6. AI 응답을 메시지로 변환
-                                            Message assistantMessage = Message.assistantMessage(
-                                                    aiResponse.getMessage(),
-                                                    Message.MessageMetadata.builder()
-                                                            .processingTime(aiResponse.getProcessingTime())
-                                                            .modeUsed(aiResponse.getModeUsed())
-                                                            .build()
-                                            );
+                                                // 캐시 MISS 시: 컨텍스트 추출 → AI 호출 → 캐시 저장 → 메시지 저장
+                                                Mono.defer(() -> {
+                                                    // 3-1. 컨텍스트 추출 (캐시 MISS일 때만 실행)
+                                                    int window = session.getMaxContextWindow() == null ? 10 : session.getMaxContextWindow();
+                                                    List<Message> context = contextManager.getRecentContext(session, window);
+                                                    // 3-2. 토큰 제한 적용(최대 4000 토큰)
+                                                    List<Message> limited = contextManager.truncateByTokenLimit(context, 4000);
 
-                                            // 7. 메시지 쌍 저장
-                                            return sessionService.addMessagePair(
-                                                    session.getSessionId(),
-                                                    userMessage,
-                                                    assistantMessage
-                                            ).thenReturn(aiResponse);
-                                        });
+                                                    // 3-3. AI 요청 생성
+                                                    AiEngineRequest aiRequest = AiEngineRequest.builder()
+                                                            .message(chatRequest.getMessage())
+                                                            .sessionId(session.getSessionId())
+                                                            .context(contextManager.formatContextForAi(limited))
+                                                            .build();
+
+                                                    // 3-4. AI Engine 호출 및 캐시 저장
+                                                    return aiEngineClient.query(aiRequest)
+                                                            .flatMap(aiResponse ->
+                                                                    cacheService.cacheResponse(session.getSessionId(), chatRequest.getMessage(), aiResponse)
+                                                                            .onErrorReturn(false)
+                                                                            .thenReturn(aiResponse)
+                                                            )
+                                                            .flatMap(aiResponse -> {
+                                                                // 3-5. AI 응답을 메시지로 변환
+                                                                Message assistantMessage = Message.assistantMessage(
+                                                                        aiResponse.getMessage(),
+                                                                        Message.MessageMetadata.builder()
+                                                                                .processingTime(aiResponse.getProcessingTime())
+                                                                                .modeUsed(aiResponse.getModeUsed())
+                                                                                .build()
+                                                                );
+
+                                                                // 3-6. 메시지 쌍 저장 (addMessagePair에서 쿼리 캐시 무효화도 처리)
+                                                                return sessionService.addMessagePair(
+                                                                        session.getSessionId(),
+                                                                        userMessage,
+                                                                        assistantMessage
+                                                                ).thenReturn(aiResponse);
+                                                            });
+                                                })
+                                        );
                             })
                             .flatMap(aiResponse -> {
-                                // 8. 최종 응답 생성
+                                // 6. 최종 응답 생성
                                 ChatResponse response = ChatResponse.success(
                                         aiResponse.getMessage(),
                                         aiResponse.getSessionId(),
@@ -116,9 +124,6 @@ public class ChatHandler {
                             });
                 });
     }
-
-
-
 
 
 }
