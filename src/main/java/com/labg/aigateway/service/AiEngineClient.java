@@ -2,23 +2,17 @@ package com.labg.aigateway.service;
 
 import com.labg.aigateway.dto.request.AiEngineRequest;
 import com.labg.aigateway.dto.response.AiResponse;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.http.HttpStatusCode;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
-import reactor.util.retry.Retry;
-
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-
 
 import java.time.Duration;
-import java.util.Map;
 
 /**
  * packageName    : com.labg.aigateway.service
@@ -49,6 +43,8 @@ public class AiEngineClient {
     /**
      * Python AI Engine에 쿼리 전송
      */
+    @CircuitBreaker(name = "aiEngine", fallbackMethod = "queryFallback")
+    @Retry(name = "aiEngine")
     public Mono<AiResponse> query(AiEngineRequest request) {
         log.debug("AI Engine 요청 - sessionId: {}, message length: {}",
                   request.getSessionId(), request.getMessage().length());
@@ -65,8 +61,7 @@ public class AiEngineClient {
                 )
                 .doOnError(error ->
                     log.error("AI Engine 요청 실패 - sessionId: {}, error: {}", request.getSessionId(), error.getMessage())
-                )
-                .onErrorResume(this::handleError);
+                );
     }
 
 
@@ -150,77 +145,4 @@ public class AiEngineClient {
     }
 
 
-
-
-
-
-
-    /**
-     * 에러 처리 및 Fallback 응답
-     */
-    /**
-     * 에러 처리 및 복구
-     *
-     * @param error 발생한 에러
-     * @return 복구된 응답 또는 에러
-     */
-    private Mono<AiResponse> handleError(Throwable error) {
-        if (error instanceof WebClientResponseException webClientError) {
-            log.error("WebClient 에러 - status: {}, body: {}",
-                     webClientError.getStatusCode(),
-                     webClientError.getResponseBodyAsString());
-
-            return Mono.just(createErrorResponse(
-                "AI 서비스 응답 오류",
-                webClientError.getStatusCode().value()
-            ));
-        }
-
-        if (error instanceof java.util.concurrent.TimeoutException) {
-            log.error("AI Engine 타임아웃 - timeout: {}s", timeout.getSeconds());
-            return Mono.just(createErrorResponse("응답 시간이 초과되었습니다", 408));
-        }
-
-        if (error instanceof AiEngineException aiError) {
-            log.error("AI Engine 커스텀 에러 - message: {}", aiError.getMessage());
-            return Mono.just(createErrorResponse(aiError.getMessage(), 500));
-        }
-
-        // 알 수 없는 에러
-        log.error("알 수 없는 에러", error);
-        return Mono.just(createErrorResponse(
-            "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-            500
-        ));
-    }
-
-    /**
-     * 에러 응답 생성
-     *
-     * @param message 에러 메시지
-     * @param statusCode HTTP 상태 코드
-     * @return 에러 응답
-     */
-    private AiResponse createErrorResponse(String message, int statusCode) {
-        return AiResponse.builder()
-                .success(false)
-                .message(message)
-                .processingTime(0.0)
-                .modeUsed("error")
-                .metadata(new AiResponse.Metadata())
-                .build();
-    }
-
-    /**
-     * AI Engine 커스텀 예외
-     */
-    public static class AiEngineException extends RuntimeException {
-        public AiEngineException(String message) {
-            super(message);
-        }
-
-        public AiEngineException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
 }

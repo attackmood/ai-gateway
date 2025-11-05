@@ -35,14 +35,19 @@ ai-engine:
 
 # 캐시 설정
 cache:
-  ttl: 5m  # 5분
+  query-ttl: 5m
+  session-ttl: 10m
   max-size: 1000
+
+# 컨텍스트 설정
+context:
+  max-messages: 10
+  max-tokens: 4000
 
 # 세션 설정
 session:
-  cache-ttl: 10m
-  context-window: 10  # 최근 10개 메시지만 유지
-  max-age: 24h        # 24시간 후 자동 만료
+  expiry-hours: 24
+  cleanup-cron: "0 0 3 * * ?"
 
 # Actuator 설정
 management:
@@ -54,9 +59,50 @@ management:
     health:
       show-details: always
 
+# Resilience4j 설정
+resilience4j:
+  circuitbreaker:
+    # 전역 기본 설정
+    configs:
+      default:
+        register-health-indicator: true
+        event-consumer-buffer-size: 10
+    # 개별 인스턴스 설정
+    instances:
+      aiEngine:
+        # 기본 설정 (configs.default 상속)
+        base-config: default
+        # 개별 설정
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        slow-call-rate-threshold: 100
+        slow-call-duration-threshold: 25s
+
+  retry:
+    instances:
+      aiEngine:
+        max-attempts: 3
+        wait-duration: 1s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.reactive.function.client.WebClientResponseException$InternalServerError
+          - org.springframework.web.reactive.function.client.WebClientResponseException$ServiceUnavailable
+          - org.springframework.web.reactive.function.client.WebClientResponseException$GatewayTimeout
+          - java.util.concurrent.TimeoutException
+          - java.net.ConnectException
+
+
+
+
 # 로깅 설정
 logging:
   level:
     root: INFO
     com.labg.aigateway: DEBUG
+    io.github.resilience4j: DEBUG
+    io.github.resilience4j.circuitbreaker: DEBUG
+    io.github.resilience4j.retry: DEBUG
     org.springframework.data.mongodb: DEBUG
