@@ -3,6 +3,11 @@ spring:
     name: ai-gateway
   main:
     web-application-type: reactive
+  thymeleaf:
+    prefix: classpath:templates/
+    suffix: .html
+    cache: false
+    enabled: true
   devtools:
     restart:
       enabled: true
