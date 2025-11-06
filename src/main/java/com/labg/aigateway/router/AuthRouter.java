@@ -1,6 +1,6 @@
 package com.labg.aigateway.router;
 
-import com.labg.aigateway.handler.ChatHandler;
+import com.labg.aigateway.handler.AuthHandler;
 import lombok.AllArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,26 +12,25 @@ import org.springframework.web.reactive.function.server.ServerResponse;
 
 /**
  * packageName    : com.labg.aigateway.router
- * fileName       : ChatRouter
+ * fileName       : AuthRouter
  * author         : 이가은
- * date           : 2025-10-28
+ * date           : 2025-11-06
  * description    :
  * ===========================================================
  * DATE                 AUTHOR              NOTE
  * -----------------------------------------------------------
- * 2025-10-28          이가은             최초 생성
+ * 2025-11-06          이가은             최초 생성
  */
 @Configuration
 @AllArgsConstructor
-public class ChatRouter {
-
-    private ChatHandler chatHandler;
+public class AuthRouter {
+    private final AuthHandler authHandler;
 
     @Bean
-    public RouterFunction<ServerResponse> chatRoutes() {
+    public RouterFunction<ServerResponse> authRoutes() {
         return RouterFunctions.route()
-                .POST("/api/chat/query", RequestPredicates.accept(MediaType.APPLICATION_JSON), chatHandler::handleChat)
-                .POST("/api/chat/upload-pdf", RequestPredicates.accept(MediaType.MULTIPART_FORM_DATA), chatHandler::uploadPdf)
+                .POST("/api/auth/register", RequestPredicates.accept(MediaType.APPLICATION_JSON), authHandler::register)
+                .POST("/api/auth/login", RequestPredicates.accept(MediaType.APPLICATION_JSON), authHandler::login)
                 .build();
     }
 }

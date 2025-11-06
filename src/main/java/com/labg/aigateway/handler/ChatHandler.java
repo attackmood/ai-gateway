@@ -10,7 +10,10 @@ import com.labg.aigateway.service.ContextManager;
 import com.labg.aigateway.service.SessionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.http.codec.multipart.FormFieldPart;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.server.ServerRequest;
@@ -96,7 +99,8 @@ public class ChatHandler {
                                                                         aiResponse.getMessage(),
                                                                         Message.MessageMetadata.builder()
                                                                                 .processingTime(aiResponse.getProcessingTime())
-                                                                                .modeUsed(aiResponse.getModeUsed())
+                                                                                .toolResults(aiResponse.getMetadata().getToolResults())
+                                                                                .selectedTools(aiResponse.getMetadata().getSelectedTools())
                                                                                 .build()
                                                                 );
 
@@ -111,12 +115,21 @@ public class ChatHandler {
                                         );
                             })
                             .flatMap(aiResponse -> {
-                                // 6. 최종 응답 생성
+                                // 6. 최종 응답 생성 (AiResponse.Metadata -> ChatResponse.Metadata 매핑)
+                                ChatResponse.Metadata responseMetadata = null;
+                                if (aiResponse.getMetadata() != null) {
+                                    responseMetadata = ChatResponse.Metadata.builder()
+                                            .complexityScore(aiResponse.getMetadata().getComplexityScore())
+                                            .selectedTools(aiResponse.getMetadata().getSelectedTools())
+                                            .toolResults(aiResponse.getMetadata().getToolResults())
+                                            .build();
+                                }
+
                                 ChatResponse response = ChatResponse.success(
                                         aiResponse.getMessage(),
                                         aiResponse.getSessionId(),
                                         aiResponse.getProcessingTime(),
-                                        Map.of()
+                                        responseMetadata
                                 );
                                 return ServerResponse.ok()
                                         .contentType(MediaType.APPLICATION_JSON)
@@ -124,6 +137,52 @@ public class ChatHandler {
                             });
                 });
     }
+
+
+    /**
+     * PDF 업로드 처리
+     */
+    public Mono<ServerResponse> uploadPdf(ServerRequest request) {
+        // 사용자 정보 추출 (JWT 필터에서 추가된 헤더)
+        String userId = request.headers().firstHeader("X-User-Id");
+
+        return request.multipartData()
+                .flatMap(multipartData -> {
+                    // 파일 파트 추출
+                    FilePart filePart = (FilePart) multipartData.getFirst("file");
+                    if (filePart == null) {
+                        return ServerResponse.badRequest()
+                                .bodyValue(errorResponse("파일이 없습니다"));
+                    }
+
+                    // addToChroma 파라미터 추출 (선택사항)
+                    boolean addToChroma = multipartData.getFirst("addToChroma") != null
+                            && Boolean.parseBoolean(((FormFieldPart) multipartData.getFirst("addToChroma")).value());
+
+                    log.info("PDF 업로드 요청 - userId: {}, filename: {}, addToChroma: {}",
+                            userId, filePart.filename(), addToChroma);
+
+                    // PDF 서비스로 전달
+                    return aiEngineClient.uploadPdf(filePart, addToChroma)
+                            .flatMap(response -> ServerResponse.ok()
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .bodyValue(response))
+                            .onErrorResume(error -> {
+                                log.error("PDF 업로드 실패", error);
+                                return ServerResponse.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                        .bodyValue(errorResponse("PDF 업로드 중 오류가 발생했습니다"));
+                            });
+                });
+    }
+
+    private Object errorResponse(String message) {
+        return new ErrorResponse(false, "Upload Error", message);
+    }
+
+    record ErrorResponse(boolean success, String error, String message) {}
+
+
+
 
 
 }

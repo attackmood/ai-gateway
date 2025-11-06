@@ -1,6 +1,5 @@
 package com.labg.aigateway.handler;
 
-import com.labg.aigateway.dto.response.HealthResponse;
 import com.labg.aigateway.service.AiEngineClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,18 +42,6 @@ public class HealthHandler {
     public Mono<ServerResponse> handleHealthCheck(ServerRequest request) {
         return aiEngineClient.healthCheck()
                 .flatMap(aiEngineHealth -> {
-                    // AI Engine 상태와 Gateway 상태를 포함한 응답 생성
-                    Map<String, Object> healthStatus = new HashMap<>();
-                    healthStatus.put("status", aiEngineHealth.isHealthy() ? "UP" : "DOWN");
-                    healthStatus.put("gateway", "healthy");
-                    healthStatus.put("aiEngine", Map.of(
-                            "status", aiEngineHealth.getStatus(),
-                            "service", aiEngineHealth.getService(),
-                            "version", aiEngineHealth.getVersion(),
-                            "routerAvailable", aiEngineHealth.getRouterAvailable() != null ? aiEngineHealth.getRouterAvailable() : false,
-                            "uptime", aiEngineHealth.getUptime() != null ? aiEngineHealth.getUptime() : "unknown"
-                    ));
-                    
                     // AI Engine이 healthy이면 OK, 그 외에는 SERVICE_UNAVAILABLE
                     HttpStatus status = aiEngineHealth.isHealthy() 
                             ? HttpStatus.OK 
@@ -62,7 +49,7 @@ public class HealthHandler {
                     
                     return ServerResponse.status(status)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .bodyValue(healthStatus);
+                            .bodyValue(aiEngineHealth);
                 })
                 .onErrorResume(error -> {
                     log.error("헬스체크 실패", error);

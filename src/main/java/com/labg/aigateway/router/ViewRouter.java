@@ -43,6 +43,12 @@ public class ViewRouter {
                                 "description", "WebFlux + Thymeleaf"
                         ))
                 )
+                // GET /login → templates/login.html 렌더링
+                .GET("/login", RequestPredicates.accept(MediaType.TEXT_HTML), request ->
+                        ServerResponse.ok().render("login", Map.of(
+                                "title", "로그인 - Smart-RAG Chat"
+                        ))
+                )
                 .build();
     }
 }

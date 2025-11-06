@@ -1,11 +1,13 @@
 package com.labg.aigateway.entity;
 
+import com.labg.aigateway.dto.response.AiResponse;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * packageName    : com.labg.aigateway.domain
@@ -38,8 +40,8 @@ public class Message {
     @AllArgsConstructor
     public static class MessageMetadata {
         private Double processingTime;
-        private String modeUsed;
-        private Double complexityScore;
+        private List<String> selectedTools;
+        private List<AiResponse.ToolResult> toolResults;
     }
 
     // === 팩토리 메서드 ===

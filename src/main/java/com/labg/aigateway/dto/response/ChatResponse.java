@@ -1,8 +1,10 @@
 package com.labg.aigateway.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -34,7 +36,20 @@ public class ChatResponse {
 
     private String modeUsed;         // "parallel", "simple", "llm_integrated"
 
-    private Map<String, Object> metadata;  // 추가 정보
+    private Metadata metadata;  // 추가 정보
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Metadata {
+
+        private Double complexityScore;
+
+        private List<String> selectedTools;
+
+        private List<AiResponse.ToolResult> toolResults;
+    }
 
     // 에러 응답용 생성자
     public static ChatResponse error(String message) {
@@ -47,7 +62,7 @@ public class ChatResponse {
 
     // 성공 응답용 생성자
     public static ChatResponse success(String message, String sessionId,
-                                       Double processingTime, Map<String, Object> metadata) {
+                                       Double processingTime, Metadata metadata) {
         return ChatResponse.builder()
                 .success(true)
                 .message(message)

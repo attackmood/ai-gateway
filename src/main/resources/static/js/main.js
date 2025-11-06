@@ -19,6 +19,12 @@ document.addEventListener('DOMContentLoaded', function () {
 function initializeApp() {
     console.log('🚀 Smart-RAG Chat 초기화 시작');
 
+    // 인증 확인 (로그인 페이지가 아닌 경우에만)
+    if (!window.location.pathname.includes('/login') && 
+        !window.location.pathname.includes('/register')) {
+        checkAuthentication();
+    }
+
     // 테마 설정
     setTheme(currentTheme);
 
@@ -143,6 +149,81 @@ function closeAllModals() {
 }
 
 /**
+ * 인증 확인 및 리다이렉트
+ * 쿠키에서 access_token 확인
+ */
+function checkAuthentication() {
+    // 쿠키에서 access_token 확인
+    const cookieToken = getCookie('access_token');
+    
+    console.log('인증 확인 - 쿠키 토큰:', cookieToken ? '존재함' : '없음');
+    console.log('전체 쿠키:', document.cookie);
+    
+    if (!cookieToken) {
+        // 토큰이 없으면 로그인 페이지로 리다이렉트
+        console.log('⚠️ 토큰이 없습니다. 로그인 페이지로 이동합니다.');
+        window.location.href = '/login';
+        return false;
+    }
+    
+    // 토큰이 있으면 유효성 검증은 API 호출 시 서버에서 처리
+    console.log('✅ 인증 확인 완료');
+    return true;
+}
+
+/**
+ * 쿠키에서 값 가져오기
+ */
+function getCookie(name) {
+    const nameEQ = name + "=";
+    const ca = document.cookie.split(';');
+    for (let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+        if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+    }
+    return null;
+}
+
+/**
+ * API 요청 시 토큰을 헤더에 자동 추가하는 fetch 래퍼
+ * 
+ * @param {string} url - 요청 URL
+ * @param {object} options - fetch 옵션
+ * @returns {Promise<Response>} - fetch 응답
+ */
+async function fetchWithAuth(url, options = {}) {
+    // 헤더 설정 (FormData인 경우 Content-Type을 자동 설정하지 않음)
+    const headers = { ...options.headers };
+    
+    // FormData가 아닌 경우에만 Content-Type 설정
+    if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+    }
+    
+    // 쿠키는 credentials: 'include'로 자동 전송됨
+    // Authorization 헤더는 불필요 (쿠키에서 토큰 읽음)
+    
+    const response = await fetch(url, {
+        ...options,
+        headers,
+        credentials: 'include'  // 쿠키 자동 포함
+    });
+    
+    // 401 Unauthorized 응답 시 토큰 만료 또는 무효
+    if (response.status === 401) {
+        console.log('⚠️ 인증 실패. 로그인 페이지로 이동합니다.');
+        // 쿠키 삭제
+        document.cookie = 'access_token=; path=/; max-age=0';
+        localStorage.removeItem('username');
+        window.location.href = '/login';
+        return response;
+    }
+    
+    return response;
+}
+
+/**
  * 연결 상태 확인
  */
 async function checkConnectionStatus() {
@@ -170,16 +251,9 @@ async function checkConnectionStatus() {
  */
 function updateConnectionStatus(connected) {
     const statusIndicator = document.getElementById('connection-status');
-    const statusDot = document.querySelector('.status-dot');
-
-    if (statusIndicator && statusDot) {
-        if (connected) {
-            statusIndicator.textContent = '연결됨';
-            statusDot.classList.remove('disconnected');
-        } else {
-            statusIndicator.textContent = '연결 끊김';
-            statusDot.classList.add('disconnected');
-        }
+    if (statusIndicator) {
+        statusIndicator.className = `connection-status ${connected ? 'connected' : 'disconnected'}`;
+        statusIndicator.textContent = connected ? '연결됨' : '연결 끊김';
     }
 }
 
@@ -364,5 +438,7 @@ window.SmartRAG = {
     showToast,
     showLoading,
     checkConnectionStatus,
-    loadSettings
+    loadSettings,
+    fetchWithAuth,
+    checkAuthentication
 };

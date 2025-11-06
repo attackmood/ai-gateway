@@ -9,11 +9,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.MultipartBodyBuilder;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * packageName    : com.labg.aigateway.service
@@ -72,7 +76,7 @@ public class AiEngineClient {
 
         return Mono.just(AiResponse.builder()
                 .success(false)
-                .message("현재 AI 서비스가 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요.")
+                .message("현재 AI 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요.")
                 .sessionId(request.getSessionId())
                 .processingTime(0.0)
                 .modeUsed("fallback")
@@ -110,6 +114,46 @@ public class AiEngineClient {
                             .uptime("0")
                             .build());
                 });
+    }
+
+    /**
+     * PDF 업로드 (Multipart/form-data)
+     * Python FastAPI: POST /api/chat/upload-pdf
+     * 요청 파라미터:
+     *  - file: UploadFile (PDF)
+     *  - add_to_chroma: boolean
+     * 응답: { success: boolean, message: string, data: { ... } }
+     */
+    @CircuitBreaker(name = "aiEngine", fallbackMethod = "uploadPdfFallback")
+    @Retry(name = "aiEngine")
+    public Mono<Map<String, Object>> uploadPdf(FilePart filePart, boolean addToChroma) {
+        log.debug("PDF 업로드 요청 - filename: {}, add_to_chroma: {}", filePart.filename(), addToChroma);
+
+        MultipartBodyBuilder builder = new MultipartBodyBuilder();
+
+        builder.part("file", filePart)
+                .filename(filePart.filename())
+                .contentType(MediaType.APPLICATION_PDF);
+        builder.part("add_to_chroma", String.valueOf(addToChroma))
+                .contentType(MediaType.TEXT_PLAIN);
+
+        return webClient.post()
+                .uri("/api/chat/upload-pdf")
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .retrieve()
+                .bodyToMono(new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {})
+                .timeout(Duration.ofSeconds(Math.max(60, (int) timeout.toSeconds())))
+                .doOnSuccess(res -> log.info("PDF 업로드 응답 성공 - filename: {}", filePart.filename()))
+                .doOnError(err -> log.error("PDF 업로드 실패 - filename: {}, error: {}", filePart.filename(), err.getMessage()));
+    }
+
+    private Mono<Map<String, Object>> uploadPdfFallback(FilePart filePart, boolean addToChroma, Exception exception) {
+        log.warn("PDF 업로드 Fallback 실행 - filename: {}, error: {}", filePart.filename(), exception.getMessage());
+        return Mono.just(Map.of(
+                "success", false,
+                "message", "PDF 업로드 실패: " + exception.getMessage()
+        ));
     }
 
     /**

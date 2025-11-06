@@ -21,9 +21,6 @@ document.addEventListener('DOMContentLoaded', function () {
 function initializeChat() {
     console.log('💬 채팅 초기화 시작');
 
-    // 세션 ID 생성
-    currentSessionId = generateSessionId();
-
     // 이벤트 리스너 설정
     setupChatEventListeners();
 
@@ -51,17 +48,6 @@ function setupChatEventListeners() {
         // 입력창 자동 크기 조절
         chatInput.addEventListener('input', function () {
             autoResizeTextarea(this);
-        });
-
-        // 입력 중 상태 표시
-        chatInput.addEventListener('input', function () {
-            if (!isTyping && this.value.trim()) {
-                isTyping = true;
-                showTypingIndicator();
-            } else if (isTyping && !this.value.trim()) {
-                isTyping = false;
-                hideTypingIndicator();
-            }
         });
 
         // 입력창 포커스 시 자동 스크롤
@@ -154,10 +140,7 @@ async function sendMessage() {
     // 입력창 초기화
     chatInput.value = '';
     autoResizeTextarea(chatInput);
-    hideTypingIndicator();
 
-    // 저장된 채팅 모드 가져오기
-    const savedMode = localStorage.getItem('chat_mode') || 'parallel';
 
     // AbortController 생성 (중단 기능)
     abortController = new AbortController();
@@ -168,15 +151,12 @@ async function sendMessage() {
     showAITypingIndicator();
 
     try {
-        const response = await fetch('/api/chat/query', {
+        // fetchWithAuth 사용 (토큰 자동 추가)
+        const response = await window.SmartRAG.fetchWithAuth('/api/chat/query', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
             body: JSON.stringify({
                 message: message,
-                mode: savedMode,
-                session_id: currentSessionId
+                sessionId: currentSessionId
             }),
             signal: abortController.signal
         });
@@ -187,15 +167,16 @@ async function sendMessage() {
         if (result.success) {
             // AI 응답을 채팅에 추가
             addMessageToChat('assistant', result.message, {
-                processing_time: result.processing_time,
-                selected_tools: result.metadata?.selected_tools || [],
-                complexity_score: result.metadata?.complexity_score || 0
+                processingTime: result.processingTime,
+                selectedTools: result.metadata?.selectedTools || [],
+                complexityScore: result.metadata?.complexityScore || 0
             });
+            currentSessionId = result.sessionId;
         } else {
             // 에러 메시지 표시
             addMessageToChat('assistant', result.message || '처리 중 오류가 발생했습니다.', {
                 isError: true,
-                processing_time: result.processing_time
+                processingTime: result.processingTime
             });
         }
 
@@ -278,14 +259,14 @@ function addMessageToChat(role, content, metadata = {}) {
         metadataDiv.className = 'message-metadata';
         metadataDiv.style.display = 'none'; // 기본적으로 숨김
 
-        if (metadata.processing_time) {
+        if (metadata.processingTime) {
             const processingTime = document.createElement('span');
             processingTime.className = 'processing-time';
-            processingTime.textContent = `⏱️ ${metadata.processing_time.toFixed(2)}초`;
+            processingTime.textContent = `⏱️ ${metadata.processingTime.toFixed(2)}초`;
             metadataDiv.appendChild(processingTime);
         }
 
-        if (metadata.selected_tools && metadata.selected_tools.length > 0) {
+        if (metadata.selectedTools && metadata.selectedTools.length > 0) {
             const toolsUsed = document.createElement('span');
             toolsUsed.className = 'tools-used';
 
@@ -299,7 +280,7 @@ function addMessageToChat(role, content, metadata = {}) {
                 'reasoning': '🧠'
             };
 
-            const toolsText = metadata.selected_tools.map(tool => {
+            const toolsText = metadata.selectedTools.map(tool => {
                 const icon = toolIcons[tool] || '🛠️';
                 return `${icon} ${tool}`;
             }).join(', ');
@@ -308,10 +289,10 @@ function addMessageToChat(role, content, metadata = {}) {
             metadataDiv.appendChild(toolsUsed);
         }
 
-        if (metadata.complexity_score !== undefined) {
+        if (metadata.complexityScore !== undefined) {
             const complexity = document.createElement('span');
             complexity.className = 'complexity-score';
-            complexity.textContent = `복잡도: ${metadata.complexity_score.toFixed(2)}`;
+            complexity.textContent = `복잡도: ${metadata.complexityScore.toFixed(2)}`;
             metadataDiv.appendChild(complexity);
         }
 
@@ -381,8 +362,8 @@ function loadChatHistory(messages) {
  */
 function startNewChat() {
 
-    // 새 세션 ID 생성
-    currentSessionId = generateSessionId();
+    // 세션ID 초기화
+    currentSessionId = null;
 
     // 채팅 히스토리 초기화
     const chatMessages = document.getElementById('chat-messages');
@@ -404,42 +385,7 @@ function startNewChat() {
     showSystemMessage('새로운 채팅을 시작합니다.');
 }
 
-/**
- * 연결 상태 업데이트
- */
-function updateConnectionStatus(connected) {
-    const statusIndicator = document.getElementById('connection-status');
-    if (statusIndicator) {
-        statusIndicator.className = `connection-status ${connected ? 'connected' : 'disconnected'}`;
-        statusIndicator.textContent = connected ? '연결됨' : '연결 끊김';
-    }
-}
 
-/**
- * 타이핑 인디케이터 표시
- */
-function showTypingIndicator() {
-    const chatMessages = document.getElementById('chat-messages');
-    if (!chatMessages) return;
-
-    const typingDiv = document.createElement('div');
-    typingDiv.className = 'typing-indicator';
-    typingDiv.id = 'typing-indicator';
-    typingDiv.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
-
-    chatMessages.appendChild(typingDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-/**
- * 타이핑 인디케이터 숨김
- */
-function hideTypingIndicator() {
-    const typingIndicator = document.getElementById('typing-indicator');
-    if (typingIndicator) {
-        typingIndicator.remove();
-    }
-}
 
 /**
  * AI 타이핑 인디케이터 표시 (답변 생성 중)
@@ -536,12 +482,6 @@ function getCurrentTime() {
     });
 }
 
-/**
- * 세션 ID 생성
- */
-function generateSessionId() {
-    return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-}
 
 /**
  * 로딩 오버레이 표시/숨김
@@ -600,8 +540,8 @@ async function uploadPDF(file) {
         formData.append('file', file);
         formData.append('add_to_chroma', 'true');
 
-        // API 요청
-        const response = await fetch('/api/chat/upload-pdf', {
+        // API 요청 (fetchWithAuth 사용 - 토큰 자동 추가)
+        const response = await window.SmartRAG.fetchWithAuth('/api/chat/upload-pdf', {
             method: 'POST',
             body: formData
         });
