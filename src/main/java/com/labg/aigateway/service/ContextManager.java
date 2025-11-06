@@ -1,8 +1,7 @@
 package com.labg.aigateway.service;
 
-import com.labg.aigateway.domain.ChatSession;
-import com.labg.aigateway.domain.Message;
-import com.labg.aigateway.dto.request.AiEngineRequest;
+import com.labg.aigateway.entity.ChatSession;
+import com.labg.aigateway.entity.Message;
 
 import java.util.List;
 import java.util.Map;

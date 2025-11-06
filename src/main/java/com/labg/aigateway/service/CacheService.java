@@ -1,6 +1,6 @@
 package com.labg.aigateway.service;
 
-import com.labg.aigateway.domain.ChatSession;
+import com.labg.aigateway.entity.ChatSession;
 import com.labg.aigateway.dto.response.AiResponse;
 import reactor.core.publisher.Mono;
 

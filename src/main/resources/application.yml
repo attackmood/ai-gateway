@@ -111,3 +111,9 @@ logging:
     io.github.resilience4j.circuitbreaker: DEBUG
     io.github.resilience4j.retry: DEBUG
     org.springframework.data.mongodb: DEBUG
+
+
+jwt:
+  secret:
+    access-token-exp-time: 3600000 #1시간
+    secret-key: $2a$10$vI8aWBnW3fID.ZQ4/zo1G.q1lRps.9cGLcZEiGDMVr5yUP1KUOYTa

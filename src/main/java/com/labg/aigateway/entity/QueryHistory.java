@@ -1,4 +1,4 @@
-package com.labg.aigateway.domain;
+package com.labg.aigateway.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

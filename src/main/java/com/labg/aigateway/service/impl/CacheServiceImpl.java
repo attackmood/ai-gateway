@@ -1,6 +1,6 @@
 package com.labg.aigateway.service.impl;
 
-import com.labg.aigateway.domain.ChatSession;
+import com.labg.aigateway.entity.ChatSession;
 import com.labg.aigateway.dto.response.AiResponse;
 import com.labg.aigateway.service.CacheService;
 import lombok.RequiredArgsConstructor;

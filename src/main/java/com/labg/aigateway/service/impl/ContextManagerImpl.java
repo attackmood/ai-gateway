@@ -1,7 +1,7 @@
 package com.labg.aigateway.service.impl;
 
-import com.labg.aigateway.domain.ChatSession;
-import com.labg.aigateway.domain.Message;
+import com.labg.aigateway.entity.ChatSession;
+import com.labg.aigateway.entity.Message;
 import com.labg.aigateway.service.ContextManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

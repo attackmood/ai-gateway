@@ -1,6 +1,6 @@
 package com.labg.aigateway.handler;
 
-import com.labg.aigateway.domain.Message;
+import com.labg.aigateway.entity.Message;
 import com.labg.aigateway.dto.request.AiEngineRequest;
 import com.labg.aigateway.dto.request.ChatRequest;
 import com.labg.aigateway.dto.response.ChatResponse;

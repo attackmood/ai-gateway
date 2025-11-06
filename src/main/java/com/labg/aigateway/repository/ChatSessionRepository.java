@@ -1,6 +1,6 @@
 package com.labg.aigateway.repository;
 
-import com.labg.aigateway.domain.ChatSession;
+import com.labg.aigateway.entity.ChatSession;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;

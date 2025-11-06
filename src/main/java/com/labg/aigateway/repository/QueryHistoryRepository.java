@@ -1,6 +1,6 @@
 package com.labg.aigateway.repository;
 
-import com.labg.aigateway.domain.QueryHistory;
+import com.labg.aigateway.entity.QueryHistory;
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository;
 
 /**
