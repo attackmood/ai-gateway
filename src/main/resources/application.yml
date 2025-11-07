@@ -116,4 +116,4 @@ logging:
 jwt:
   secret:
     access-token-exp-time: 3600000 #1시간
-    secret-key: $2a$10$vI8aWBnW3fID.ZQ4/zo1G.q1lRps.9cGLcZEiGDMVr5yUP1KUOYTa
+    secret-key: "your-very-long-secret-key-at-least-256-bits-long-for-hs256-algorithm-security"
