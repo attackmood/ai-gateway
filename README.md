@@ -1,4 +1,4 @@
-# Java AI Gateway - 프로덕션 레벨 게이트웨이 서버 구축
+# Java AI Gateway Case Study
 
 ## 📋 프로젝트 개요
 
@@ -13,6 +13,7 @@
 - Python AI Engine은 순수하게 AI 추론만 담당하도록 분리
 - Java로 비즈니스 로직, 인증, 캐싱 등 프로덕션 필수 기능 구현
 - 각 언어의 강점을 살린 Polyglot Architecture 구축
+
 
 ---
 
@@ -33,6 +34,156 @@
    - MongoDB를 통한 대화 컨텍스트 영구 저장
 
 **결론:** 각 기술의 강점을 살린 **폴리글랏 아키텍처**
+
+### 설계 포인트
+- 캐시-퍼스트: HIT 시 메시지 저장 생략으로 지연 최소화, MISS 시에만 컨텍스트/AI 호출 수행
+- 회복 탄력성: 서킷브레이커/재시도, 헬스체크 리다이렉트 대응, 안전한 실패 처리
+- 프런트 통합: Thymeleaf 페이지(로그인/메인), 정적 리소스 서빙, JS 연동
+
+### 아키텍처 다이어그램
+
+```mermaid
+graph TB
+    subgraph "Java Layer"
+        subgraph "API Gateway (Spring Boot)"
+            GW[Java Gateway<br/>JWT 인증/라우팅]
+        end
+        
+        subgraph "Business Service (Spring Boot)"
+            HANDLER[ChatHandler<br/>요청 처리/조율]
+            SESSION[SessionService<br/>세션 관리]
+            CACHE_SVC[CacheService<br/>캐시 관리]
+        end
+        
+        subgraph "Data Layer"
+            MONGO[(MongoDB<br/>세션/대화 내역)]
+            REDIS[(Redis<br/>세션 캐시 TTL 10분<br/>응답 캐시 TTL 5분)]
+        end
+    end
+    
+    subgraph "Python Layer"
+        subgraph "AI Engine (FastAPI)"
+            HR[HybridRouter<br/>LangGraph]
+            TOOLS[Tools Registry]
+            LLM[Ollama LLM]
+        end
+        
+        subgraph "AI Services"
+            SEARCH[Google Search]
+            MCP[MCP Services]
+            RAG[RAG System<br/>ChromaDB]
+        end
+    end
+    
+    User[User] --> GW
+    GW -->|JWT 검증 후| HANDLER
+    
+    HANDLER --> SESSION
+    HANDLER --> CACHE_SVC
+    
+    SESSION --> MONGO
+    SESSION --> CACHE_SVC
+    
+    CACHE_SVC --> REDIS
+    
+    HANDLER -->|HTTP/REST<br/>Circuit Breaker + Retry| HR
+    
+    HR --> TOOLS
+    HR --> LLM
+    TOOLS --> SEARCH
+    TOOLS --> MCP
+    TOOLS --> RAG
+```
+
+
+### 핵심 시퀀스 (요청 → 응답)
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Gateway as Java Gateway
+    participant Handler as ChatHandler
+    participant SessionSvc as SessionService
+    participant CacheSvc as CacheService
+    participant MongoDB as MongoDB
+    participant Redis as Redis
+    participant AI as Python AI Engine
+    
+    User->>Gateway: POST /api/chat/query
+    Gateway->>Gateway: JWT 검증
+    Gateway->>Handler: 요청 전달
+    Note over Handler: 입력 검증 (message 필수)
+    
+    Handler->>SessionSvc: getOrCreateSession(sessionId, userId)
+    SessionSvc->>CacheSvc: getCachedSession(sessionId)
+    
+    alt 세션 캐시 HIT
+        CacheSvc-->>SessionSvc: 캐시된 세션
+    else 세션 캐시 MISS
+        SessionSvc->>MongoDB: 세션 조회
+        MongoDB-->>SessionSvc: 세션 데이터
+        SessionSvc->>Redis: 세션 캐시 저장 (TTL 10분)
+    end
+    
+    SessionSvc-->>Handler: ChatSession
+    
+    Handler->>CacheSvc: getCachedResponse(sessionId, message)
+    
+    alt 응답 캐시 HIT
+        CacheSvc-->>Handler: 캐시된 응답
+        Note over Handler: 메시지 저장 없이 즉시 반환
+    else 응답 캐시 MISS
+       
+        Handler->>AI: query(AiEngineRequest)
+        Note over AI: Circuit Breaker + Retry 적용
+        AI-->>Handler: AiResponse
+        
+        Handler->>CacheSvc: cacheResponse(sessionId, message, response)
+        CacheSvc->>Redis: 응답 캐시 저장 (TTL 5분)
+        
+        Handler->>SessionSvc: addMessagePair(sessionId, userMsg, assistantMsg)
+        SessionSvc->>MongoDB: 세션 업데이트 (메시지 저장)
+        
+        alt MongoDB 저장 성공
+            SessionSvc->>CacheSvc: cacheSession(session)
+            CacheSvc->>Redis: 세션 캐시 업데이트
+        end
+    end
+    
+    Handler-->>User: ChatResponse
+```
+
+
+---
+
+## 🛠️ 기술 스택
+
+### Backend Framework
+
+- **Java 21** - Virtual Thread 지원 최신 LTS 버전
+- **Spring Boot 3.3.5** - 엔터프라이즈급 애플리케이션 프레임워크
+- **Spring WebFlux** - Reactive 기반 비동기 논블로킹 웹 프레임워크
+
+### Database & Cache
+- **MongoDB 7.x** - NoSQL 문서형 데이터베이스 (채팅 세션 및 메시지 저장)
+- **Spring Data MongoDB Reactive** - MongoDB Reactive Repository
+- **Redis 7.x** - 인메모리 데이터 저장소 (캐싱 및 세션 관리)
+- **Lettuce** - Redis Reactive Client
+
+### Resilience & Monitoring
+- **Resilience4j 2.2.0** - Circuit Breaker, Retry, Rate Limiter
+- **Spring AOP** - 관점 지향 프로그래밍 (Resilience4j 어노테이션 지원)
+
+### Communication
+- **WebClient** - 비동기 HTTP 클라이언트 (Python AI Engine 통신)
+- **Netty** - 비동기 이벤트 기반 네트워크 프레임워크
+
+### Frontend
+- **Thymeleaf 3.x** - 서버 사이드 템플릿 엔진
+
+### Build & Runtime
+- **Gradle 8.x** - 빌드 및 의존성 관리
+
 
 ---
 
@@ -345,38 +496,7 @@ return sessionRepository.findById(id)
 - [ ] 로깅 시스템 (ELK Stack)
 - [ ] 부하 테스트 (Gatling)
 
----
 
-
-
-## 🎓 결론
-
-이 프로젝트는 단순히 "Java로 백엔드를 만들었다"를 넘어서:
-
-1. **아키텍처 설계 역량**
-   - 폴리글랏 아키텍처
-   - 역할 기반 분리
-   - 실용적 설계
-
-2. **엔터프라이즈 기술 스택**
-   - Spring WebFlux (Reactive)
-   - MongoDB Reactive
-   - Redis (캐싱)
-   - Resilience4j (장애 대응)
-
-3. **실무 패턴 학습**
-   - JWT 인증
-   - Circuit Breaker
-   - Retry with Exponential Backoff
-   - 2단계 캐싱 전략
-
-4. **문제 해결 능력**
-   - 버그 발견 및 해결
-   - 트레이드오프 이해
-   - 성능 최적화
-
-**가장 큰 성과:**  
-"이론을 실전에 적용하고, 문제를 직접 겪으며, 왜 그런지 깊이 이해하게 되었다"
 
 ---
 
